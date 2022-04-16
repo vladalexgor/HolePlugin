@@ -1,6 +1,7 @@
 ﻿using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Mechanical;
+using Autodesk.Revit.DB.Plumbing;
 using Autodesk.Revit.DB.Structure;
 using Autodesk.Revit.UI;
 using System;
@@ -39,6 +40,12 @@ namespace HolePlugin
             List<Duct> ducts = new FilteredElementCollector(ovDoc)
                 .OfClass(typeof(Duct))
                 .OfType<Duct>()
+                .ToList();
+
+            //Создание списка труб
+            List<Pipe> pipes = new FilteredElementCollector(ovDoc)
+                .OfClass(typeof(Pipe))
+                .OfType<Pipe>()
                 .ToList();
 
             View3D view3D = new FilteredElementCollector(arDoc)
@@ -85,6 +92,32 @@ namespace HolePlugin
                     Parameter height = hole.LookupParameter("Высота");
                     width.Set(d.Diameter);
                     height.Set(d.Diameter);
+                }
+            }
+            //цикл для создания отверстий для труб
+            foreach (Pipe p in pipes)
+            {
+                Line curve = (p.Location as LocationCurve).Curve as Line;
+                XYZ point = curve.GetEndPoint(0);
+                XYZ direction = curve.Direction;
+                List<ReferenceWithContext> intersections = referenceIntersector.Find(point, direction)
+                    .Where(x => x.Proximity <= curve.Length)
+                    .Distinct(new ReferenceWithContextElementEqualityComprarer())
+                    .ToList();
+                foreach (ReferenceWithContext refer in intersections)
+                {
+                    double proximity = refer.Proximity;
+                    Reference reference = refer.GetReference();
+                    Wall wall = arDoc.GetElement(reference.ElementId) as Wall;
+
+                    Level level = arDoc.GetElement(wall.LevelId) as Level;
+                    XYZ pointHole = point + (direction * proximity);
+
+                    FamilyInstance hole = arDoc.Create.NewFamilyInstance(pointHole, familySymbol, wall, level, StructuralType.NonStructural);
+                    Parameter width = hole.LookupParameter("Ширина");
+                    Parameter height = hole.LookupParameter("Высота");
+                    width.Set(p.Diameter + UnitUtils.ConvertToInternalUnits(100, UnitTypeId.Millimeters));
+                    height.Set(p.Diameter + UnitUtils.ConvertToInternalUnits(100, UnitTypeId.Millimeters));
                 }
             }
             transaction.Commit();
